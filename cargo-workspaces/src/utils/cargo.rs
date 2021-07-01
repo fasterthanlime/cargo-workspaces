@@ -407,7 +407,6 @@ pub fn is_published(index: &BareIndex, name: &str, version: &str) -> Result<bool
         }
     };
 
-    println!("looking for {} v{}", name, version);
     let published = crate_data
         .iter()
         .flat_map(|c| c.versions().iter())
