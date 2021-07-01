@@ -80,14 +80,8 @@ pub struct BareIndexRepo<'a> {
 
 impl<'a> BareIndexRepo<'a> {
     fn new(index: &'a BareIndex) -> Result<Self, Error> {
-        println!(
-            "BareIndexRepo::new, index path = {}, index url = {}",
-            index.path.display(),
-            index.url
-        );
         let exists = git2::Repository::discover(&index.path)
             .map(|repository| {
-                println!("found repo!");
                 repository
                     .find_remote("origin")
                     .ok()
@@ -98,7 +92,6 @@ impl<'a> BareIndexRepo<'a> {
                     })
             })
             .unwrap_or(false);
-        println!("exists? {}", exists);
 
         let repo = if !exists {
             let mut opts = git2::RepositoryInitOptions::new();
@@ -157,27 +150,23 @@ impl<'a> BareIndexRepo<'a> {
     /// from the repository, as their commit version will no longer match.
     pub fn retrieve(&mut self) -> Result<(), Error> {
         {
-            println!("retrieving...");
             let mut origin_remote = self
                 .rt
                 .repo
                 .find_remote("origin")
                 .or_else(|_| self.rt.repo.remote_anonymous(&self.inner.url))?;
-            println!("got remote...");
 
             let config = Config::open_default()?;
             let mut fetch_opts = crate::fetch_opts();
 
             let mut remote_callbacks = RemoteCallbacks::new();
             remote_callbacks.credentials(|url, username_from_url, _allowed_types| {
-                println!("asking credentials for {} {:?}", url, username_from_url);
                 match CredentialHelper::new(url)
                     .config(&config)
                     .username(username_from_url)
                     .execute()
                 {
                     Some((username, password)) => {
-                        println!("found credential: {} / {}", username, password);
                         let cred = Cred::userpass_plaintext(&username, &password)?;
                         Ok(cred)
                     }
@@ -187,7 +176,6 @@ impl<'a> BareIndexRepo<'a> {
                 }
             });
             fetch_opts.remote_callbacks(remote_callbacks);
-            println!("set up remote callbacks");
 
             origin_remote.fetch(
                 &[

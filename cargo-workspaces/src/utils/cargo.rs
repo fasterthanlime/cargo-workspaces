@@ -392,10 +392,8 @@ pub fn change_versions(
 }
 
 pub fn is_published(index: &BareIndex, name: &str, version: &str) -> Result<bool> {
-    println!("open_or_clone!");
     let crate_data = match index.open_or_clone() {
         Ok(mut bare_index) => {
-            println!("got BareIndexRepo!");
             if let Err(e) = bare_index.retrieve() {
                 Error::IndexUpdate(e).print()?;
                 None
@@ -404,12 +402,12 @@ pub fn is_published(index: &BareIndex, name: &str, version: &str) -> Result<bool
             }
         }
         Err(e) => {
-            println!("index update error");
             Error::IndexUpdate(e).print()?;
             None
         }
     };
 
+    println!("looking for {} v{}", name, version);
     let published = crate_data
         .iter()
         .flat_map(|c| c.versions().iter())

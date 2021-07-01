@@ -82,22 +82,21 @@ impl Publish {
             let path = p.to_string_lossy();
             let mut args = vec!["publish"];
 
+            let name_ver = format!("{} v{}", name, version);
+
             let index =
                 if let Some(publish) = pkg.publish.as_deref().and_then(|x| x.get(0)).as_deref() {
-                    println!("pkg is published to: {}", publish);
                     let registry_url = cargo_config_get(
                         &metadata.workspace_root,
                         &format!("registries.{}.index", publish),
                     )?;
-                    println!("pkg is published to registry URL: {}", registry_url);
                     BareIndex::from_url(&format!("registry+{}", registry_url))?
                 } else {
-                    println!("pkg is on crates.io");
                     BareIndex::new_cargo_default()
                 };
 
             if is_published(&index, &name, version)? {
-                info!("skipped", name);
+                info!("already published", name_ver);
                 continue;
             }
 
@@ -117,10 +116,7 @@ impl Publish {
             args.push("--manifest-path");
             args.push(&path);
 
-            println!("FIXME: Would publish but let's not");
-            let output: (String, String) =
-                ("".into(), "Uploading error: is already uploaded".into());
-            // let output = cargo(&metadata.workspace_root, &args)?;
+            let output = cargo(&metadata.workspace_root, &args)?;
 
             if !output.1.contains("Uploading") {
                 return Err(Error::Publish(name));
@@ -128,7 +124,7 @@ impl Publish {
 
             check_index(&index, &name, version)?;
 
-            info!("published", name);
+            info!("published", name_ver);
         }
 
         info!("success", "ok");
