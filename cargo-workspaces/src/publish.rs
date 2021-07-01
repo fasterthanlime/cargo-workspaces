@@ -94,12 +94,17 @@ impl Publish {
             args.push("--manifest-path");
             args.push(&path);
 
-            let output = cargo(&metadata.workspace_root, &args)?;
+            println!("FIXME: Would publish but let's not");
+            let output: (String, String) =
+                ("".into(), "Uploading error: is already uploaded".into());
+            // let output = cargo(&metadata.workspace_root, &args)?;
 
-            if !output.1.contains("Uploading")
-                || (output.1.contains("error:")
-                    && !(self.skip_published && output.1.contains("is already uploaded")))
-            {
+            if output.1.contains("is already uploaded") {
+                info!("skipped", name);
+                continue;
+            }
+
+            if !output.1.contains("Uploading") {
                 return Err(Error::Publish(name));
             }
 
