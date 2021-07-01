@@ -64,7 +64,7 @@ impl Publish {
             .into_iter()
             .filter(|x| {
                 if let Some((pkg, _)) = pkgs.iter().find(|(p, _)| p.manifest_path == *x) {
-                    return !pkg.publish.is_some()
+                    return pkg.publish.is_none()
                         || !pkg.publish.as_ref().expect(INTERNAL_ERR).is_empty();
                 }
 
