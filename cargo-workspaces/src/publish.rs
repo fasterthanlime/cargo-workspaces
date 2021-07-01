@@ -1,6 +1,10 @@
-use crate::utils::{cargo, check_index, dag, info, Error, Result, VersionOpt, INTERNAL_ERR};
+use crate::utils::{
+    cargo, cargo_config_get, check_index, dag, info, is_published, Error, Result, VersionOpt,
+    INTERNAL_ERR,
+};
 use cargo_metadata::Metadata;
 use clap::Clap;
+use crates_index::BareIndex;
 use indexmap::IndexSet as Set;
 
 /// Publish crates in the project
@@ -78,6 +82,25 @@ impl Publish {
             let path = p.to_string_lossy();
             let mut args = vec!["publish"];
 
+            let index =
+                if let Some(publish) = pkg.publish.as_deref().and_then(|x| x.get(0)).as_deref() {
+                    println!("pkg is published to: {}", publish);
+                    let registry_url = cargo_config_get(
+                        &metadata.workspace_root,
+                        &format!("registries.{}.index", publish),
+                    )?;
+                    println!("pkg is published to registry URL: {}", registry_url);
+                    BareIndex::from_url(&format!("registry+{}", registry_url))?
+                } else {
+                    println!("pkg is on crates.io");
+                    BareIndex::new_cargo_default()
+                };
+
+            if is_published(&index, &name, version)? {
+                info!("skipped", name);
+                continue;
+            }
+
             if self.no_verify {
                 args.push("--no-verify");
             }
@@ -99,19 +122,11 @@ impl Publish {
                 ("".into(), "Uploading error: is already uploaded".into());
             // let output = cargo(&metadata.workspace_root, &args)?;
 
-            if output.1.contains("is already uploaded") {
-                info!("skipped", name);
-                continue;
-            }
-
             if !output.1.contains("Uploading") {
                 return Err(Error::Publish(name));
             }
 
-            // TODO: How to update index for non crates.io
-            if pkg.publish.is_none() {
-                check_index(&name, version)?;
-            }
+            check_index(&index, &name, version)?;
 
             info!("published", name);
         }

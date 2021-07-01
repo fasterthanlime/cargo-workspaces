@@ -9,14 +9,14 @@ use semver::{Version, VersionReq};
 use std::{
     collections::BTreeMap as Map,
     io::{BufRead, BufReader},
-    path::PathBuf,
+    path::Path,
     process::{Command, Stdio},
     thread::sleep,
     time::{Duration, Instant},
 };
 
-const CRLF: &'static str = "\r\n";
-const LF: &'static str = "\n";
+const CRLF: &str = "\r\n";
+const LF: &str = "\n";
 
 lazy_static! {
     static ref NAME: Regex =
@@ -55,8 +55,8 @@ lazy_static! {
             .expect(INTERNAL_ERR);
 }
 
-pub fn cargo<'a>(root: &PathBuf, args: &[&'a str]) -> Result<(String, String)> {
-    debug!("cargo", args.clone().join(" "));
+pub fn cargo<'a>(root: &Path, args: &[&'a str]) -> Result<(String, String)> {
+    debug!("cargo", args.join(" "));
 
     let mut args = args.to_vec();
 
@@ -109,6 +109,72 @@ pub fn cargo<'a>(root: &PathBuf, args: &[&'a str]) -> Result<(String, String)> {
         output_stdout.trim().to_owned(),
         output_stderr.trim().to_owned(),
     ))
+}
+
+pub fn cargo_config_get(root: &Path, name: &str) -> Result<String> {
+    debug!("cargo config get", name);
+
+    let mut args = vec!["-Z", "unstable-options", "config", "get", name];
+
+    if TERM_ERR.features().colors_supported() {
+        args.push("--color");
+        args.push("always");
+    }
+
+    let args_text = args.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+
+    let mut stderr_lines = vec![];
+
+    let mut child = Command::new("cargo")
+        .current_dir(root)
+        .args(&args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        // avert your eyes...
+        .env("RUSTC_BOOTSTRAP", "1")
+        .spawn()
+        .map_err(|err| Error::Cargo {
+            err,
+            args: args_text.clone(),
+        })?;
+
+    {
+        let stderr = child.stderr.as_mut().expect(INTERNAL_ERR);
+
+        for line in BufReader::new(stderr).lines() {
+            let line = line?;
+
+            eprintln!("{}", line);
+            stderr_lines.push(line);
+        }
+    }
+
+    let output = child.wait_with_output().map_err(|err| Error::Cargo {
+        err,
+        args: args_text,
+    })?;
+
+    let output_stdout = String::from_utf8(output.stdout)?;
+    let output_stderr = stderr_lines.join("\n");
+
+    debug!("cargo stderr", output_stderr);
+    debug!("cargo stdout", output_stdout);
+
+    let tokens = output_stdout
+        .split(" = ")
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>();
+    let value = tokens
+        .get(1)
+        .ok_or(Error::BadConfigGetOutput(output_stdout))?;
+
+    // FIXME: this probably breaks with character escapes but at this
+    // point what we really need is a TOML crate
+    Ok(value
+        .trim()
+        .trim_start_matches('"')
+        .trim_end_matches('"')
+        .into())
 }
 
 #[derive(Debug)]
@@ -325,36 +391,41 @@ pub fn change_versions(
     )
 }
 
-pub fn check_index(name: &str, version: &str) -> Result<()> {
-    let index = BareIndex::new_cargo_default();
+pub fn is_published(index: &BareIndex, name: &str, version: &str) -> Result<bool> {
+    println!("open_or_clone!");
+    let crate_data = match index.open_or_clone() {
+        Ok(mut bare_index) => {
+            println!("got BareIndexRepo!");
+            if let Err(e) = bare_index.retrieve() {
+                Error::IndexUpdate(e).print()?;
+                None
+            } else {
+                bare_index.crate_(name)
+            }
+        }
+        Err(e) => {
+            println!("index update error");
+            Error::IndexUpdate(e).print()?;
+            None
+        }
+    };
+
+    let published = crate_data
+        .iter()
+        .flat_map(|c| c.versions().iter())
+        .any(|v| v.version() == version);
+
+    Ok(published)
+}
+
+pub fn check_index(index: &BareIndex, name: &str, version: &str) -> Result<()> {
     let now = Instant::now();
     let sleep_time = Duration::from_secs(2);
     let timeout = Duration::from_secs(300);
     let mut logged = false;
 
     loop {
-        let crate_data = match index.open_or_clone() {
-            Ok(mut bare_index) => {
-                if let Err(e) = bare_index.retrieve() {
-                    Error::IndexUpdate(e).print()?;
-                    None
-                } else {
-                    bare_index.crate_(name)
-                }
-            }
-            Err(e) => {
-                Error::IndexUpdate(e).print()?;
-                None
-            }
-        };
-
-        let published = crate_data
-            .iter()
-            .flat_map(|c| c.versions().iter())
-            .find(|v| v.version() == version)
-            .is_some();
-
-        if published {
+        if is_published(index, name, version)? {
             break;
         } else if timeout < now.elapsed() {
             return Err(Error::PublishTimeout);
