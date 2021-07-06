@@ -1,5 +1,3 @@
-use git2::{Config, Cred, CredentialHelper, RemoteCallbacks};
-
 use crate::{Crate, Error, IndexConfig};
 use std::marker::PhantomPinned;
 use std::{
@@ -156,33 +154,12 @@ impl<'a> BareIndexRepo<'a> {
                 .find_remote("origin")
                 .or_else(|_| self.rt.repo.remote_anonymous(&self.inner.url))?;
 
-            let config = Config::open_default()?;
-            let mut fetch_opts = crate::fetch_opts();
-
-            let mut remote_callbacks = RemoteCallbacks::new();
-            remote_callbacks.credentials(|url, username_from_url, _allowed_types| {
-                match CredentialHelper::new(url)
-                    .config(&config)
-                    .username(username_from_url)
-                    .execute()
-                {
-                    Some((username, password)) => {
-                        let cred = Cred::userpass_plaintext(&username, &password)?;
-                        Ok(cred)
-                    }
-                    None => Err(git2::Error::from_str(
-                        "failed to acquire username/password from local configuration",
-                    )),
-                }
-            });
-            fetch_opts.remote_callbacks(remote_callbacks);
-
             origin_remote.fetch(
                 &[
                     "HEAD:refs/remotes/origin/HEAD",
                     "master:refs/remotes/origin/master",
                 ],
-                Some(&mut fetch_opts),
+                Some(&mut crate::fetch_opts()),
                 None,
             )?;
         }
