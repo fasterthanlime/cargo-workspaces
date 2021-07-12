@@ -2,7 +2,7 @@ use crate::utils::{debug, get_debug, info, Error, Result, INTERNAL_ERR};
 
 use crates_index::BareIndex;
 use lazy_static::lazy_static;
-use oclif::{term::TERM_ERR, CliError};
+use oclif::term::TERM_ERR;
 use regex::{Captures, Regex};
 use semver::{Version, VersionReq};
 
@@ -237,6 +237,7 @@ where
     for line in manifest.lines() {
         let trimmed = line.trim();
         let count = new_lines.len();
+        #[allow(clippy::if_same_then_else)]
         if trimmed.starts_with("[package]") {
             context = Context::Package;
         } else if trimmed.starts_with("[dependencies]") {
@@ -253,7 +254,7 @@ where
             if dev_deps {
                 context = Context::DependencyEntry(caps[1].to_string());
             }
-        } else if trimmed.starts_with("[") {
+        } else if trimmed.starts_with('[') {
             if let Context::DependencyEntry(ref dep) = context {
                 dependency_pkg_f(dep, &mut new_lines)?;
             }
@@ -392,27 +393,27 @@ pub fn change_versions(
 }
 
 pub fn is_published(index: &BareIndex, name: &str, version: &str) -> Result<bool> {
-    let crate_data = match index.open_or_clone() {
-        Ok(mut bare_index) => {
-            if let Err(e) = bare_index.retrieve() {
-                Error::IndexUpdate(e).print()?;
-                None
-            } else {
-                bare_index.crate_(name)
-            }
-        }
-        Err(e) => {
-            Error::IndexUpdate(e).print()?;
-            None
-        }
-    };
+    let mut bare_index = index.open_or_clone()?;
 
-    let published = crate_data
-        .iter()
-        .flat_map(|c| c.versions().iter())
-        .any(|v| v.version() == version);
+    // See if we already have the crate (and version) in cache
+    if let Some(crate_data) = bare_index.crate_(name) {
+        if crate_data.versions().iter().any(|v| v.version() == version) {
+            return Ok(true);
+        }
+    }
 
-    Ok(published)
+    // We don't? Okay, update the cache then
+    bare_index.retrieve()?;
+
+    // Try again with updated index:
+    if let Some(crate_data) = bare_index.crate_(name) {
+        if crate_data.versions().iter().any(|v| v.version() == version) {
+            return Ok(true);
+        }
+    }
+
+    // I guess we didn't have it
+    Ok(false)
 }
 
 pub fn check_index(index: &BareIndex, name: &str, version: &str) -> Result<()> {
